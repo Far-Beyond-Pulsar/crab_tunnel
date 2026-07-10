@@ -1,0 +1,16 @@
+[package]
+name = "crab-tunnel-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["net", "time", "macros", "sync", "rt"] }
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
+socket2 = "0.5"
+thiserror = "1"
+tracing = "0.1"
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+futures = "0.3"

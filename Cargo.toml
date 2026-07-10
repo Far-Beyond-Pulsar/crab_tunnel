@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "crab-tunnel-core",
+    "crab-tunnel-server",
+    "crab-tunnel-client",
+]
+resolver = "2"

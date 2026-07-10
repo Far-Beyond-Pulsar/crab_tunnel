@@ -1,0 +1,12 @@
+[package]
+name = "crab-tunnel-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+crab-tunnel-core = { path = "../crab-tunnel-core" }
+tokio = { version = "1", features = ["net", "time", "macros", "sync", "rt"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
