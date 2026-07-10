@@ -208,7 +208,7 @@ impl HolePunchClient {
     /// Execute the hole punch against `peer_addr` using the stored config.
     pub async fn punch_to(&self, peer_addr: SocketAddr) -> Result<SocketAddr, HolePunchError> {
         info!("Punching hole to {peer_addr}");
-        punch_hole(&self.socket, peer_addr, &self.punch_config).await
+        punch_hole(self.socket.clone(), peer_addr, &self.punch_config).await
     }
 
     // -- Heartbeat / keep-alive ----------------------------------------------

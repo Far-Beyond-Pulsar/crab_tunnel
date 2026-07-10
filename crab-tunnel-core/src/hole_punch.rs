@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use socket2::{Domain, Protocol, Socket, Type};
@@ -54,14 +55,13 @@ pub fn create_punch_socket(bind_addr: SocketAddr) -> Result<UdpSocket, HolePunch
 }
 
 pub async fn punch_hole(
-    socket: &UdpSocket,
+    socket: Arc<UdpSocket>,
     peer_addr: SocketAddr,
     config: &PunchConfig,
 ) -> Result<SocketAddr, HolePunchError> {
     debug!("Punching hole to {peer_addr}");
 
     let punch_msg = encode(&Message::PunchAck)?;
-    let mut buf = vec![0u8; 65535];
 
     if config.port_prediction {
         let base_port = peer_addr.port();
@@ -72,43 +72,57 @@ pub async fn punch_hole(
         }
     }
 
-    for i in 0..config.attempts {
-        socket.send_to(&punch_msg, peer_addr).await?;
-        debug!("Punch attempt {}/{} to {peer_addr}", i + 1, config.attempts);
-        if i + 1 < config.attempts {
-            tokio::time::sleep(config.interval).await;
-        }
-    }
+    let send_socket = socket.clone();
+    let send_msg = punch_msg.clone();
+    let send_peer = peer_addr;
+    let send_interval = config.interval;
+    let send_count = config.attempts;
 
-    let deadline = tokio::time::Instant::now() + config.response_timeout;
-    while tokio::time::Instant::now() < deadline {
-        let remaining = deadline - tokio::time::Instant::now();
-        match tokio::time::timeout(remaining, socket.recv_from(&mut buf)).await {
-            Ok(Ok((_len, from))) if from == peer_addr => {
-                debug!("Hole punch successful to {peer_addr}");
-                drain_leftovers(socket, &mut buf).await;
-                return Ok(peer_addr);
+    let send_handle = tokio::spawn(async move {
+        for i in 0..send_count {
+            if let Err(e) = send_socket.send_to(&send_msg, send_peer).await {
+                debug!("Punch send error: {e}");
             }
-            Ok(Ok((len, from))) => {
-                if let Ok(msg) = decode(&buf[..len]) {
-                    if matches!(msg, Message::PunchAck) {
-                        debug!("Hole punch successful from {from}");
-                        drain_leftovers(socket, &mut buf).await;
-                        return Ok(from);
-                    }
+            debug!("Punch attempt {}/{} to {send_peer}", i + 1, send_count);
+            tokio::time::sleep(send_interval).await;
+        }
+    });
+
+    let result = async {
+        let mut buf = vec![0u8; 65535];
+        let deadline = tokio::time::Instant::now() + config.response_timeout;
+
+        while tokio::time::Instant::now() < deadline {
+            let remaining = deadline - tokio::time::Instant::now();
+            match tokio::time::timeout(remaining, socket.recv_from(&mut buf)).await {
+                Ok(Ok((_len, from))) if from == peer_addr => {
+                    debug!("Hole punch successful to {peer_addr}");
+                    drain_leftovers(&*socket, &mut buf).await;
+                    return Ok(peer_addr);
                 }
-                debug!("Ignoring {len} bytes from {from} during punch");
-            }
-            Ok(Err(e)) => {
-                debug!("Recv error during punch: {e}");
-            }
-            Err(_) => {
-                break;
+                Ok(Ok((len, from))) => {
+                    if let Ok(msg) = decode(&buf[..len]) {
+                        if matches!(msg, Message::PunchAck) {
+                            debug!("Hole punch successful from {from}");
+                            drain_leftovers(&*socket, &mut buf).await;
+                            return Ok(from);
+                        }
+                    }
+                    debug!("Ignoring {len} bytes from {from} during punch");
+                }
+                Ok(Err(e)) => {
+                    debug!("Recv error during punch: {e}");
+                }
+                Err(_) => break,
             }
         }
-    }
 
-    Err(HolePunchError::PunchFailed)
+        Err(HolePunchError::PunchFailed)
+    }
+    .await;
+
+    send_handle.abort();
+    result
 }
 
 async fn drain_leftovers(socket: &UdpSocket, buf: &mut [u8]) {
@@ -147,8 +161,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_punch_between_two_sockets() {
-        let a = create_punch_socket("127.0.0.1:0".parse().unwrap()).unwrap();
-        let b = create_punch_socket("127.0.0.1:0".parse().unwrap()).unwrap();
+        let a = Arc::new(create_punch_socket("127.0.0.1:0".parse().unwrap()).unwrap());
+        let b = Arc::new(create_punch_socket("127.0.0.1:0".parse().unwrap()).unwrap());
 
         let addr_a = a.local_addr().unwrap();
         let addr_b = b.local_addr().unwrap();
@@ -169,7 +183,7 @@ mod tests {
         });
 
         let result = punch_hole(
-            &a,
+            a.clone(),
             addr_b,
             &PunchConfig {
                 attempts: 15,
@@ -198,7 +212,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_port_prediction_sends_extra_packets() {
-        let a = create_punch_socket("127.0.0.1:0".parse().unwrap()).unwrap();
+        let a = Arc::new(create_punch_socket("127.0.0.1:0".parse().unwrap()).unwrap());
         let _addr_a = a.local_addr().unwrap();
 
         let config = PunchConfig {
@@ -208,27 +222,26 @@ mod tests {
             ..Default::default()
         };
 
-        let b = create_punch_socket("127.0.0.1:0".parse().unwrap()).unwrap();
+        let b = Arc::new(create_punch_socket("127.0.0.1:0".parse().unwrap()).unwrap());
         let addr_b = b.local_addr().unwrap();
 
-        let _ = punch_hole(&a, addr_b, &config).await;
+        let _ = punch_hole(a, addr_b, &config).await;
 
-        drop(a);
-        drop(b);
         // Test passes if no panics — port prediction just sends extra packets
     }
 
     #[tokio::test]
     async fn test_punch_to_nonexistent_peer_fails() {
-        let a = create_punch_socket("127.0.0.1:0".parse().unwrap()).unwrap();
+        let a = Arc::new(create_punch_socket("127.0.0.1:0".parse().unwrap()).unwrap());
         let nonexistent: SocketAddr = "127.0.0.1:1".parse().unwrap();
 
         let result = punch_hole(
-            &a,
+            a,
             nonexistent,
             &PunchConfig {
                 attempts: 3,
                 interval: Duration::from_millis(10),
+                response_timeout: Duration::from_millis(200),
                 ..Default::default()
             },
         )
