@@ -2,14 +2,12 @@
   <img src="assets/crab_tunnel.png" width="200" alt="crab-tunnel">
 </p>
 
-# crab-tunnel
-
 A UDP hole-punching library built with Tokio and socket2.
 
 ```
-crab-tunnel-core   protocol types, server, hole-punch primitives
-crab-tunnel-server rendezvous server binary
-crab-tunnel-client high-level hole-punch client library
+crab-tunnel-core          protocol types, server, hole-punch primitives
+crab-tunnel-server        rendezvous server binary
+crab-tunnel-client        high-level hole-punch client library
 ```
 
 ## Overview
