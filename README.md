@@ -2,8 +2,6 @@
   <img src="assets/crab_tunnel.png" width="200" alt="crab-tunnel">
 </p>
 
-# crab-tunnel
-
 A UDP hole-punching library built with Tokio and socket2.
 
 ```
