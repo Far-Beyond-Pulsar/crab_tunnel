@@ -12,24 +12,18 @@ use crab_tunnel_core::hole_punch::{create_punch_socket, punch_hole, PunchConfig}
 use crab_tunnel_core::protocol::{decode, encode, Message};
 
 #[derive(Debug, Clone)]
-pub struct IncomingConnection {
+pub struct Connection {
     pub peer_id: String,
     pub peer_addr: SocketAddr,
 }
 
 #[derive(Debug, Clone)]
-pub struct PeerConnection {
-    pub peer_id: String,
-    pub peer_addr: SocketAddr,
-}
-
-#[derive(Clone)]
 pub struct HolePunchClient {
     socket: Arc<UdpSocket>,
     server_addr: SocketAddr,
     my_peer_id: Arc<Mutex<String>>,
     my_public_addr: Arc<Mutex<SocketAddr>>,
-    pending_incoming: Arc<Mutex<VecDeque<IncomingConnection>>>,
+    pending_incoming: Arc<Mutex<VecDeque<Connection>>>,
     punch_config: PunchConfig,
     recv_timeout: Duration,
 }
@@ -117,7 +111,7 @@ impl HolePunchClient {
                     self.pending_incoming
                         .lock()
                         .await
-                        .push_back(IncomingConnection {
+                        .push_back(Connection {
                             peer_id: from_peer_id,
                             peer_addr: from_addr,
                         });
@@ -164,7 +158,7 @@ impl HolePunchClient {
                     self.pending_incoming
                         .lock()
                         .await
-                        .push_back(IncomingConnection {
+                        .push_back(Connection {
                             peer_id: from_peer_id,
                             peer_addr: from_addr,
                         });
@@ -175,7 +169,7 @@ impl HolePunchClient {
     }
 
     /// Block until another peer requests a connection to us.
-    pub async fn accept_incoming(&self) -> Result<IncomingConnection, HolePunchError> {
+    pub async fn accept_incoming(&self) -> Result<Connection, HolePunchError> {
         if let Some(conn) = self.pending_incoming.lock().await.pop_front() {
             debug!("Returning queued incoming from {}", conn.peer_id);
             return Ok(conn);
@@ -188,7 +182,7 @@ impl HolePunchClient {
                     from_addr,
                 } => {
                     info!("Incoming connection from \"{from_peer_id}\" at {from_addr}");
-                    return Ok(IncomingConnection {
+                    return Ok(Connection {
                         peer_id: from_peer_id,
                         peer_addr: from_addr,
                     });
@@ -246,7 +240,7 @@ impl HolePunchClient {
                     self.pending_incoming
                         .lock()
                         .await
-                        .push_back(IncomingConnection {
+                        .push_back(Connection {
                             peer_id: from_peer_id,
                             peer_addr: from_addr,
                         });
